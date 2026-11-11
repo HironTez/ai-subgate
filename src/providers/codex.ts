@@ -32,7 +32,7 @@ function defaultBin(): string {
 export class CodexProvider implements Provider {
   readonly type = "codex";
   readonly capabilities = { multiTurn: false, images: true };
-  constructor(readonly name: string, private cfg: ProviderConfig) {}
+  constructor(readonly name: string, private cfg: ProviderConfig, _dataDir?: string) {}
 
   start(o: StartOptions, emit: (e: RunEvent) => void): ProviderRun {
     const args = [

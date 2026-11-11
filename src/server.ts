@@ -1,3 +1,4 @@
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Bridge } from "./bridge.ts";
 import type { Config } from "./config.ts";
@@ -15,6 +16,10 @@ import { log, sha256, startOfUtcDay } from "./util.ts";
 const BRIDGE_PREAMBLE = (toolCount: number, tc: MessagesRequest["tool_choice"]) =>
   [
     "You are being served through an API. You have no built-in tools: no shell, no file access, no web access.",
+    "IMPORTANT: the \"# Environment\" section in your context (working directory under gateway-sandbox-not-the-callers-filesystem, " +
+      "platform, git status) describes an empty gateway sandbox you cannot access. It is NOT the caller's machine. Never use or " +
+      "mention its paths. The caller's real working directory and files are whatever the conversation and the caller's tools say; " +
+      "when the conversation states a working directory, that one is authoritative.",
     toolCount
       ? `The only tools you have are the ${toolCount} tools of the MCP server "api" (they may appear as mcp__api__<name>). ` +
         "They run in the caller's environment; use them exactly as you would use tools in the Messages API."
@@ -40,7 +45,7 @@ export class Gateway {
     this.moderator = new Moderator(cfg, store);
     const bridgeBaseUrl = cfg.bridgeUrl ?? `http://${cfg.listen.host === "0.0.0.0" ? "127.0.0.1" : cfg.listen.host}:${cfg.listen.port}`;
     this.sessions = new SessionManager(
-      { bridge: this.bridge, router: this.router, bridgeBaseUrl, runsDir: join(cfg.dataDir, "runs"), ttlMs: cfg.sessionTtlSeconds * 1000 },
+      { bridge: this.bridge, router: this.router, bridgeBaseUrl, runsDir: cfg.runsDir ?? join(tmpdir(), "gateway-sandbox-not-the-callers-filesystem"), ttlMs: cfg.sessionTtlSeconds * 1000 },
       cfg.maxSessions,
     );
   }

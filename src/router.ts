@@ -32,7 +32,7 @@ export class Router {
       if (pc.enabled === false) continue;
       const P = { claude: ClaudeProvider, codex: CodexProvider, mock: MockProvider }[pc.type];
       if (!P) throw new Error(`unknown provider type ${pc.type}`);
-      this.providers.set(name, new P(name, pc));
+      this.providers.set(name, new P(name, pc, cfg.dataDir));
       this.health.set(name, { cooldownUntil: 0, failures: 0 });
     }
   }

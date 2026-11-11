@@ -212,7 +212,7 @@ async function main() {
     if (flags.key && !keyId) throw new Error(`no key ${flags.key}`);
     const rows = store.moderationReport(Date.now() - days * 86_400_000, keyId);
     if (!rows.length) return console.log(`no blocked or flagged requests in the last ${days} day(s)`);
-    for (const r of rows as any[]) console.log(`${r.time}  ${r.key}  ${r.verdict.toUpperCase()}  ${r.category} (${r.kind})\n    ${r.reason}\n    > ${r.excerpt}`);
+    for (const r of rows as any[]) console.log(`${r.time}  ${r.key}  ${r.verdict.toUpperCase()}  ${r.category} (${r.kind}, by ${r.model})\n    ${r.reason}\n    > ${r.excerpt}`);
     return;
   }
 

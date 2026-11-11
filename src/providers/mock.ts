@@ -16,7 +16,7 @@ import { ProviderFailure, type Provider, type ProviderRun, type RunEvent, type S
 export class MockProvider implements Provider {
   readonly type = "mock";
   readonly capabilities = { multiTurn: true, images: false };
-  constructor(readonly name: string, private cfg: ProviderConfig) {}
+  constructor(readonly name: string, private cfg: ProviderConfig, _dataDir?: string) {}
 
   start(o: StartOptions, emit: (e: RunEvent) => void): ProviderRun {
     let killed = false;

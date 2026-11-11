@@ -5,6 +5,7 @@
  */
 import type { ProviderConfig } from "../config.ts";
 import type { ContentBlock, StopReason } from "../types.ts";
+import { claudeAuthEnv } from "./claude-auth.ts";
 import { classifyError, harnessEnv, spawnLines, wrapCommand } from "./spawn.ts";
 import { ProviderFailure, type Provider, type ProviderRun, type RunEvent, type StartOptions } from "./types.ts";
 
@@ -14,7 +15,7 @@ const STOP_REASONS = new Set<StopReason>(["end_turn", "max_tokens", "stop_sequen
 export class ClaudeProvider implements Provider {
   readonly type = "claude";
   readonly capabilities = { multiTurn: true, images: true };
-  constructor(readonly name: string, private cfg: ProviderConfig) {}
+  constructor(readonly name: string, private cfg: ProviderConfig, private dataDir: string) {}
 
   start(o: StartOptions, emit: (e: RunEvent) => void): ProviderRun {
     const args = [
@@ -44,6 +45,7 @@ export class ClaudeProvider implements Provider {
       MCP_TIMEOUT: "30000",
       MAX_MCP_OUTPUT_TOKENS: "500000",
       DISABLE_AUTOUPDATER: "1",
+      ...claudeAuthEnv(this.name, this.cfg, this.dataDir),
     });
 
     let failed = false;

@@ -19,6 +19,10 @@ export interface ProviderConfig {
   wrapper?: string[];
   /** Extra CLI args appended to the harness invocation. */
   extraArgs?: string[];
+  /** claude: file holding a long-lived token from `claude setup-token` for the isolated harness profile. */
+  oauthTokenFile?: string;
+  /** claude: false runs harnesses with the owner's normal profile (exposes account context). Default true. */
+  isolateProfile?: boolean;
 }
 
 export interface RouteTarget {
@@ -38,6 +42,11 @@ export interface Config {
   /** URL harnesses use to reach the MCP bridge. Default: http://<host>:<port> */
   bridgeUrl?: string;
   dataDir: string;
+  /**
+   * Per-session harness working dirs. Default: <os tmpdir>/gateway-sandbox-not-the-callers-filesystem
+   * (outside any repo; the harness model sees this path, so the name tells it what it is).
+   */
+  runsDir?: string;
   /** How long a paused session (waiting for tool results / next user turn) is kept alive. */
   sessionTtlSeconds: number;
   maxSessions: number;

@@ -101,6 +101,17 @@ default.
    `"command"` runs a local program instead (e.g. a Llama Guard wrapper). It reads
    `{"items":[{"id","kind","text"}]}` on stdin and prints
    `{"verdict","category","reason","flagged_items"}`, so screened text stays on the machine.
+   **Escalation:** the first model also reports whether the content is `complex` and how high its
+   `injection_risk` is. A second, stronger model (`escalationModel`, default `sonnet`) re-checks it and
+   decides when any of these hold:
+   - injection risk is high
+   - the content is complex
+   - the verdict is a borderline `flag`
+   - the text matches local injection heuristics ("ignore previous instructions", notes aimed at the
+     filter, fake `<item>` tags, jailbreak personas). This covers the case where an injection fooled
+     the first model into reporting low risk.
+
+   Content can't close its own `<item>` tag. `subgate moderation` shows which model decided.
 3. **Cache**: verdicts are stored per content hash in SQLite. Unchanged content (system prompts,
    earlier turns) is screened once, and the gateway's own replies are trusted when they come back.
    **Blocked content is never sent again**: a retry is refused immediately.
@@ -127,6 +138,7 @@ Config (`subgate.json`, all optional):
   "enabled": true, "classifier": "claude", "provider": "claude", "model": "haiku",
   "scope": "user",            // "all" also screens tool results and tool descriptions
   "failClosed": true, "maxChunkChars": 24000, "suspendAfterBlocks": 5,
+  "escalationModel": "sonnet",  // null disables escalation
   "blockPatterns": []          // e.g. ["\\bmy-forbidden-term\\b"]
 }
 ```
@@ -183,8 +195,17 @@ Each conversation gets its own harness process:
   `--disable-slash-commands`, `--no-session-persistence`, and permission mode `dontAsk`.
 - **Codex:** `codex exec` with `--ignore-user-config --ignore-rules --ephemeral -s read-only`,
   shell, exec, browser, apps and image tools disabled, and web search off.
-- It runs in an empty per-session directory under `data/runs/` (removed afterwards), with
-  `TMPDIR` pointed inside it.
+- It runs in an empty per-session directory under `<tmp>/gateway-sandbox-not-the-callers-filesystem/`
+  (outside any repo, removed afterwards), with `TMPDIR` pointed inside it. Claude Code always tells
+  its model its working directory, so the directory name itself says it isn't the caller's, and the
+  preamble tells the model to ignore it.
+- **No account context reaches API clients.** With the owner's normal profile, Claude Code injects
+  the account email into every conversation. Claude harnesses therefore run with their own empty
+  `CLAUDE_CONFIG_DIR` (`data/claude-home/<provider>`) and only `CLAUDE_CODE_OAUTH_TOKEN`. The token
+  comes from `providers.<name>.oauthTokenFile` (a long-lived token from `claude setup-token`;
+  recommended). Failing that, the gateway borrows the owner's current access token while it has more
+  than an hour of validity left. If neither works it falls back to the shared profile and logs a
+  warning. `"isolateProfile": false` turns this off.
 - Its environment is reduced to an allowlist (HOME, PATH, locale, XDG, proxy). Add more with
   `inheritEnv`.
 - The MCP bridge token is random per session, and a session can only be continued by the

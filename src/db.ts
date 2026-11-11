@@ -82,6 +82,8 @@ export class Store {
     `);
     const cols = (this.db.query("PRAGMA table_info(keys)").all() as Array<{ name: string }>).map((c) => c.name);
     if (!cols.includes("moderation_cleared_at")) this.db.exec("ALTER TABLE keys ADD COLUMN moderation_cleared_at INTEGER");
+    const ecols = (this.db.query("PRAGMA table_info(moderation_events)").all() as Array<{ name: string }>).map((c) => c.name);
+    if (!ecols.includes("model")) this.db.exec("ALTER TABLE moderation_events ADD COLUMN model TEXT NOT NULL DEFAULT '-'");
   }
 
   private row(r: any): KeyRecord {
@@ -148,10 +150,10 @@ export class Store {
     this.db.query("INSERT OR REPLACE INTO moderation_cache (hash, verdict, ts) VALUES (?, ?, ?)").run(hash, verdict, Date.now());
   }
 
-  recordModeration(e: { key_id: string; verdict: string; category: string; reason: string; kind: string; excerpt: string }): void {
+  recordModeration(e: { key_id: string; verdict: string; category: string; reason: string; kind: string; excerpt: string; model: string }): void {
     this.db
-      .query("INSERT INTO moderation_events (key_id, ts, verdict, category, reason, kind, excerpt) VALUES (?, ?, ?, ?, ?, ?, ?)")
-      .run(e.key_id, Date.now(), e.verdict, e.category, e.reason, e.kind, e.excerpt);
+      .query("INSERT INTO moderation_events (key_id, ts, verdict, category, reason, kind, excerpt, model) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(e.key_id, Date.now(), e.verdict, e.category, e.reason, e.kind, e.excerpt, e.model);
   }
 
   /** Blocked requests since `since`, ignoring those before the key's last unsuspend. */
@@ -172,7 +174,7 @@ export class Store {
   moderationReport(since: number, keyId?: string) {
     return this.db
       .query(
-        `SELECT datetime(e.ts / 1000, 'unixepoch') AS time, k.name AS key, e.verdict, e.category, e.kind, e.reason, e.excerpt
+        `SELECT datetime(e.ts / 1000, 'unixepoch') AS time, k.name AS key, e.verdict, e.category, e.kind, e.model, e.reason, e.excerpt
          FROM moderation_events e LEFT JOIN keys k ON k.id = e.key_id
          WHERE e.ts >= ? AND (? IS NULL OR e.key_id = ?) ORDER BY e.ts DESC LIMIT 200`,
       )
