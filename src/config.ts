@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { defaultModeration, type ModerationConfig } from "./moderation.ts";
 
 export interface ProviderConfig {
   /** Which harness adapter to use. */
@@ -52,6 +53,8 @@ export interface Config {
   };
   /** Model ids advertised by GET /v1/models. */
   advertisedModels: string[];
+  /** Prompt screening before requests reach a harness. */
+  moderation: ModerationConfig;
 }
 
 export const defaultConfig = (): Config => ({
@@ -70,6 +73,7 @@ export const defaultConfig = (): Config => ({
   ],
   failover: { switchAtUtilization: 0.98, defaultCooldownSeconds: 60, rateLimitCooldownSeconds: 900 },
   advertisedModels: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"],
+  moderation: defaultModeration(),
 });
 
 export function configPath(explicit?: string): string {
@@ -89,6 +93,7 @@ export function loadConfig(explicit?: string): Config {
     ...raw,
     listen: { ...base.listen, ...raw.listen },
     failover: { ...base.failover, ...raw.failover },
+    moderation: { ...base.moderation, ...raw.moderation },
     providers: raw.providers ?? base.providers,
     routes: raw.routes ?? base.routes,
   };

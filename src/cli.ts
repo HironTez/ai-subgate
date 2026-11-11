@@ -18,7 +18,9 @@ Usage:
   subgate keys show <id|name>
   subgate keys revoke <id|name>
   subgate keys delete <id|name>
+  subgate keys unsuspend <id|name>               (after reviewing its moderation events)
   subgate usage [--key <id|name>] [--days N]
+  subgate moderation [--key <id|name>] [--days N] blocked/flagged requests
 
 Policy flags:
   --models <globs>          comma-separated model globs the key may request (default *)
@@ -32,6 +34,8 @@ Policy flags:
   --system <text>           system prompt prepended to every request
   --no-images               strip image inputs
   --expires <30d|ISO>       expiry
+  --moderation <on|off>     prompt screening for this key (default on when enabled in config)
+  --moderation-scope <user|all>  also screen tool results and tool descriptions ("all")
   --policy <json>           full policy JSON (merged first, flags override)
 
 Global: --config <path> (default ./subgate.json or $SUBGATE_CONFIG)
@@ -58,6 +62,8 @@ const { values: flags, positionals } = parseArgs({
     system: { type: "string" },
     "no-images": { type: "boolean" },
     expires: { type: "string" },
+    moderation: { type: "string" },
+    "moderation-scope": { type: "string" },
     policy: { type: "string" },
     key: { type: "string" },
     days: { type: "string" },
@@ -99,6 +105,17 @@ function policyFromFlags(base: KeyPolicy): KeyPolicy {
   if (flags["no-images"]) p.allowImages = false;
   if (flags.expires)
     p.expiresAt = /^\d+[smhdw]$/.test(flags.expires) ? new Date(Date.now() + parseDuration(flags.expires)).toISOString() : new Date(flags.expires).toISOString();
+  if (flags.moderation || flags["moderation-scope"]) {
+    p.moderation = { ...p.moderation };
+    if (flags.moderation) {
+      if (!["on", "off"].includes(flags.moderation)) throw new Error("--moderation expects on|off");
+      p.moderation.enabled = flags.moderation === "on";
+    }
+    if (flags["moderation-scope"]) {
+      if (!["user", "all"].includes(flags["moderation-scope"])) throw new Error("--moderation-scope expects user|all");
+      p.moderation.scope = flags["moderation-scope"] as "user" | "all";
+    }
+  }
   return validatePolicy(p);
 }
 
@@ -167,6 +184,11 @@ async function main() {
         store.revoke(k.id);
         return console.log(`revoked ${k.name}`);
       }
+      case "unsuspend": {
+        const k = need();
+        store.clearModeration(k.id);
+        return console.log(`cleared moderation suspension for ${k.name} (earlier blocks no longer count)`);
+      }
       case "delete": {
         const k = need();
         store.remove(k.id);
@@ -181,6 +203,16 @@ async function main() {
     const keyId = flags.key ? store.getKey(flags.key)?.id : undefined;
     if (flags.key && !keyId) throw new Error(`no key ${flags.key}`);
     console.table(store.usageReport(Date.now() - days * 86_400_000, keyId));
+    return;
+  }
+
+  if (cmd === "moderation") {
+    const days = Number(flags.days ?? 7);
+    const keyId = flags.key ? store.getKey(flags.key)?.id : undefined;
+    if (flags.key && !keyId) throw new Error(`no key ${flags.key}`);
+    const rows = store.moderationReport(Date.now() - days * 86_400_000, keyId);
+    if (!rows.length) return console.log(`no blocked or flagged requests in the last ${days} day(s)`);
+    for (const r of rows as any[]) console.log(`${r.time}  ${r.key}  ${r.verdict.toUpperCase()}  ${r.category} (${r.kind})\n    ${r.reason}\n    > ${r.excerpt}`);
     return;
   }
 

@@ -3,6 +3,7 @@ import { Bridge } from "./bridge.ts";
 import type { Config } from "./config.ts";
 import { estimateTokens, fingerprint, normalizeMessages, renderPrompt, systemText } from "./conversation.ts";
 import type { KeyRecord, Store } from "./db.ts";
+import { Moderator } from "./moderation.ts";
 import { filterTools, Limiter, modelAllowed } from "./policy.ts";
 import { ProviderFailure } from "./providers/types.ts";
 import { Router } from "./router.ts";
@@ -29,12 +30,14 @@ export class Gateway {
   readonly router: Router;
   readonly sessions: SessionManager;
   private limiter = new Limiter();
+  readonly moderator: Moderator;
 
   constructor(
     private cfg: Config,
     private store: Store,
   ) {
     this.router = new Router(cfg);
+    this.moderator = new Moderator(cfg, store);
     const bridgeBaseUrl = cfg.bridgeUrl ?? `http://${cfg.listen.host === "0.0.0.0" ? "127.0.0.1" : cfg.listen.host}:${cfg.listen.port}`;
     this.sessions = new SessionManager(
       { bridge: this.bridge, router: this.router, bridgeBaseUrl, runsDir: join(cfg.dataDir, "runs"), ttlMs: cfg.sessionTtlSeconds * 1000 },
@@ -130,6 +133,8 @@ export class Gateway {
     if (!lim.ok) return errorResponse("rate_limit_error", lim.reason, { "retry-after": String(lim.retryAfter) });
     const quota = this.checkQuotas(key);
     if (quota) return quota;
+    if (this.moderator.suspended(key))
+      return errorResponse("permission_error", "this key is suspended after repeated content-policy blocks; an admin must review it (subgate moderation, subgate keys unsuspend)");
 
     const messages = normalizeMessages(body.messages);
     if (messages.length === 0) return errorResponse("invalid_request_error", "messages contain no user or assistant turns");
@@ -152,6 +157,13 @@ export class Gateway {
     if (dropped.length) log.debug(`key ${key.name}: tools not exposed: ${dropped.join(", ")}`);
 
     const system = [policy.systemPrompt, systemText(body.system), BRIDGE_PREAMBLE(tools.length, body.tool_choice)].filter(Boolean).join("\n\n");
+    const clientSystem = typeof body.system === "string" ? [body.system] : (body.system ?? []).filter((b) => b.type === "text").map((b) => b.text);
+    const mod = await this.moderator.check(key, { system: clientSystem, messages, tools });
+    if (mod.verdict === "block") {
+      if (mod.category === "moderation_unavailable") return errorResponse("overloaded_error", `content screening unavailable: ${mod.reason}`);
+      return errorResponse("permission_error", `request blocked by gateway content policy (${mod.category}): ${mod.reason}`);
+    }
+
     const context = sha256(JSON.stringify([key.id, routeModel, system, tools.map((t) => [t.name, t.input_schema])]));
 
     const sink: Sink = body.stream ? new StreamSink(body.model, req.signal) : new JsonSink(body.model, req.signal);
@@ -203,6 +215,7 @@ export class Gateway {
       }
 
       const assistant: Message = { role: "assistant", content: sink.blocks };
+      this.moderator.trust(sink.blocks);
       session.fingerprint = fingerprint(context, [...messages, assistant]);
       this.store.recordUsage({
         key_id: key.id,

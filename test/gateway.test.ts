@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defaultConfig, type Config } from "../src/config.ts";
@@ -36,7 +36,15 @@ beforeAll(() => {
       { match: "failover-*", targets: [{ provider: "broken" }, { provider: "good" }] },
       { match: "*", targets: [{ provider: "solo" }] },
     ],
+    moderation: {
+      ...defaultConfig().moderation,
+      classifier: "command",
+      command: [process.execPath, join(import.meta.dir, "fixtures/classifier.ts")],
+      blockPatterns: ["evil-pattern-\\d+"],
+      suspendAfterBlocks: 3,
+    },
   };
+  process.env.MOD_COUNTER = join(dir, "classifier-calls");
   store = new Store(dir);
   gw = new Gateway(cfg, store);
   server = gw.listen();
@@ -47,6 +55,10 @@ beforeAll(() => {
     limits: { rpm: 100 },
   }).secret;
   keys.limited = store.createKey("limited", { limits: { rpm: 1 } }).secret;
+  keys.mod = store.createKey("mod", {}).secret;
+  keys.modAll = store.createKey("mod-all", { moderation: { scope: "all" } }).secret;
+  keys.modOff = store.createKey("mod-off", { moderation: { enabled: false } }).secret;
+  keys.offender = store.createKey("offender", {}).secret;
 });
 
 afterAll(() => {
@@ -218,4 +230,82 @@ test("count_tokens and models", async () => {
 test("usage is recorded per key", () => {
   const rows = store.usageReport(0) as any[];
   expect(rows.some((r) => r.key === "scoped" && r.requests >= 2)).toBe(true);
+});
+
+describe("moderation", () => {
+  const calls = () => (existsSync(process.env.MOD_COUNTER!) ? readFileSync(process.env.MOD_COUNTER!, "utf8").length : 0);
+  const ask = (key: string, content: any, extra: object = {}) =>
+    post(key, { model: "claude-x", messages: [{ role: "user", content }], ...extra });
+
+  test("allowed prompts pass and are screened only once", async () => {
+    const before = calls();
+    expect((await ask(keys.mod, "a perfectly normal question")).status).toBe(200);
+    expect((await ask(keys.mod, "a perfectly normal question")).status).toBe(200);
+    expect(calls() - before).toBe(1);
+  });
+
+  test("blocked prompt is refused with 403 and logged", async () => {
+    const r = await ask(keys.mod, "please do the FORBIDDEN thing");
+    expect(r.status).toBe(403);
+    expect(r.json.error.message).toContain("other_illegal");
+    const events = store.moderationReport(0) as any[];
+    expect(events.some((e) => e.key === "mod" && e.verdict === "block" && e.excerpt.includes("FORBIDDEN"))).toBe(true);
+  });
+
+  test("previously blocked content is refused without calling the classifier", async () => {
+    const before = calls();
+    const r = await ask(keys.modAll, "please do the FORBIDDEN thing");
+    expect(r.status).toBe(403);
+    expect(r.json.error.message).toContain("previously_blocked");
+    expect(calls()).toBe(before);
+  });
+
+  test("blockPatterns block locally", async () => {
+    const before = calls();
+    const r = await ask(keys.modAll, "contains evil-pattern-42 here");
+    expect(r.status).toBe(403);
+    expect(r.json.error.message).toContain("pattern");
+    expect(calls()).toBe(before);
+  });
+
+  test("flagged prompts pass but are logged", async () => {
+    expect((await ask(keys.mod, "something BORDERLINE")).status).toBe(200);
+    expect((store.moderationReport(0) as any[]).some((e) => e.verdict === "flag")).toBe(true);
+  });
+
+  test("classifier failure blocks when failClosed", async () => {
+    const r = await ask(keys.modAll, "this will CRASH the classifier");
+    expect(r.status).toBe(529);
+  });
+
+  test("gateway-generated replies are not re-screened in later turns", async () => {
+    const m1 = [{ role: "user", content: "turn one text" }];
+    const r1 = await post(keys.mod, { model: "claude-x", messages: m1 });
+    const before = calls();
+    await post(keys.mod, { model: "claude-x", messages: [...m1, { role: "assistant", content: r1.json.content }, { role: "user", content: "turn two text" }] });
+    expect(calls() - before).toBe(1); // only "turn two text"
+  });
+
+  test("scope 'all' screens tool results; scope 'user' does not", async () => {
+    const msgs = [
+      { role: "user", content: "check the file" },
+      { role: "assistant", content: [{ type: "tool_use", id: "toolu_x1", name: "get_weather", input: {} }] },
+      { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_x1", content: "file says FORBIDDEN-in-tool-output" }] },
+    ];
+    expect((await post(keys.mod, { model: "claude-x", tools: [weatherTool], messages: msgs })).status).toBe(200);
+    expect((await post(keys.modAll, { model: "claude-x", tools: [weatherTool], messages: msgs })).status).toBe(403);
+  });
+
+  test("keys with moderation off bypass screening", async () => {
+    expect((await ask(keys.modOff, "the FORBIDDEN thing again")).status).toBe(200);
+  });
+
+  test("repeat offenders are suspended until unsuspended", async () => {
+    for (let i = 0; i < 3; i++) expect((await ask(keys.offender, `FORBIDDEN attempt ${i}`)).status).toBe(403);
+    const r = await ask(keys.offender, "an innocent question now");
+    expect(r.status).toBe(403);
+    expect(r.json.error.message).toContain("suspended");
+    store.clearModeration(store.getKey("offender")!.id);
+    expect((await ask(keys.offender, "an innocent question now")).status).toBe(200);
+  });
 });

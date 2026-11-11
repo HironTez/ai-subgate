@@ -1,3 +1,4 @@
+import type { KeyModerationPolicy } from "./moderation.ts";
 import type { ToolDef } from "./types.ts";
 import { globToRegExp, matchAny } from "./util.ts";
 
@@ -41,6 +42,8 @@ export interface KeyPolicy {
   allowImages?: boolean;
   /** ISO timestamp after which the key stops working. */
   expiresAt?: string;
+  /** Prompt screening overrides (see config.moderation). */
+  moderation?: KeyModerationPolicy;
 }
 
 export function modelAllowed(policy: KeyPolicy, model: string): boolean {
