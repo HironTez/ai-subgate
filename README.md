@@ -155,8 +155,11 @@ gateway publicly. It binds to `127.0.0.1` by default.
 
 ## Always-on in the `dev` distrobox
 
-The gateway runs permanently inside the `dev` box, the same way as the knowledge-base service in the
-`work` box: a supervisor plus a box login hook, and **no host systemd unit**.
+The gateway runs permanently inside the `dev` box. It uses the shared pattern for always-running box
+services: a supervisor plus a box login hook, and **no host systemd unit**. The pattern, lessons,
+port registry and steps for adding services are in
+`/home/v/agents/docs/always-running-box-services.md`. Host notes specific to this service are in
+`/home/v/agents/docs/subgate-dev-box-autostart.md`.
 
 ```bash
 scripts/run-local.sh install     # once: writes /etc/profile.d/subgate.sh in the box (sudo)
