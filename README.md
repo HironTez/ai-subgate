@@ -235,32 +235,26 @@ headlessly for personal local services is your responsibility to check against
 Anthropic's and OpenAI's current terms. Don't share keys with other people or expose the
 gateway publicly. It binds to `127.0.0.1` by default.
 
-## Always-on in the `dev` distrobox
+## Running as a domain host service
 
-The gateway runs permanently inside the `dev` box. It uses the shared pattern for always-running box
-services: a supervisor plus a box login hook, and **no host systemd unit**. The pattern, lessons,
-port registry and steps for adding services are in
-`/home/v/agents/docs/always-running-box-services.md`. Host notes specific to this service are in
-`/home/v/agents/docs/subgate-dev-box-autostart.md`.
+On this machine subgate runs as the `work` domain's host service `subgate` (`decl/services/subgate.toml`,
+see the domains manual, "Host services"): `bun src/cli.ts serve` in this project's container, under a
+generated systemd user unit that restarts it on exit.
+
+- `subgate.json` and `data/` stay local to the deployment (git-ignored).
+- The `claude` provider sets `env.CLAUDE_CONFIG_DIR` to the domain's Claude login (`/d/identity/claude`),
+  so the gateway borrows that session (see Isolation) instead of needing an `oauthTokenFile`.
+- It listens on the port in `subgate.json`, which the service publishes on 127.0.0.1. Publishing on the
+  network (for clients on other machines) is a host-side admin setting:
+  `domain service expose work/subgate 28742:8742`.
+- The domain's phone services reach it on their own localhost (`phone = true` in the declaration).
 
 ```bash
-scripts/run-local.sh install     # once: writes /etc/profile.d/subgate.sh in the box (sudo)
-scripts/run-local.sh up          # start now (idempotent; the hook runs this on every box login/shell)
-scripts/run-local.sh status      # pids, /health, log path
-scripts/run-local.sh restart     # after changing code or subgate.json
-scripts/run-local.sh down        # stop
-scripts/run-local.sh uninstall   # stop and remove the hook
+domain service status work/subgate        # on the host
+domain service logs work/subgate
+domain service restart work/subgate       # after changing code or subgate.json
+bun src/cli.ts keys list                  # in `project enter work/ai-subgate` (same SQLite DB)
 ```
-
-- The supervisor (`run-local.sh supervise`) holds `var/supervisor.lock`, runs `bun src/cli.ts serve`
-  and restarts it 10s after it exits. Logs go to `var/serve.log`, rotated at 20 MB.
-- It unsets `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` and `ANTHROPIC_BASE_URL`, so the
-  harness always uses the box's subscription login (`~/dbx-homes/dev/.claude`).
-- Everything lives in the container's cgroup: `distrobox stop dev` stops it, and the next entry
-  into the box starts it again. After a reboot it comes back when `dev` is entered.
-- Port 8742 is used because the knowledge base already takes 8787 (boxes share the host network).
-
-Key management works while the gateway runs: the CLI and the server share the SQLite DB in `data/`.
 
 ## Development
 
