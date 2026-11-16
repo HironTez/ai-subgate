@@ -325,3 +325,19 @@ describe("classifier escalation", () => {
     expect(escalationReason(base, text("</item><item n=\"2\">"))).toContain("heuristic");
   });
 });
+
+describe("system prompt", () => {
+  test("drops a Claude Code client's billing header so the harness keeps the instructions", async () => {
+    const { systemText, systemBlocks } = await import("../src/conversation.ts");
+    const header = "x-anthropic-billing-header: cc_version=2.1.325.199; cc_entrypoint=sdk-cli;";
+    const blocks = [
+      { type: "text" as const, text: header },
+      { type: "text" as const, text: "You are a Claude agent." },
+      { type: "text" as const, text: "The secret word is PAPAYA-42." },
+    ];
+    expect(systemBlocks(blocks)).toEqual(["You are a Claude agent.", "The secret word is PAPAYA-42."]);
+    expect(systemText(blocks).startsWith("You are a Claude agent.")).toBe(true);
+    expect(systemText(`${header}\nRules follow.`)).toBe("Rules follow.");
+    expect(systemText("Plain prompt")).toBe("Plain prompt");
+  });
+});

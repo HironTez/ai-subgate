@@ -2,7 +2,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Bridge } from "./bridge.ts";
 import type { Config } from "./config.ts";
-import { estimateTokens, fingerprint, normalizeMessages, renderPrompt, systemText } from "./conversation.ts";
+import { estimateTokens, fingerprint, normalizeMessages, renderPrompt, systemBlocks, systemText } from "./conversation.ts";
 import type { KeyRecord, Store } from "./db.ts";
 import { Moderator } from "./moderation.ts";
 import { filterTools, Limiter, modelAllowed } from "./policy.ts";
@@ -162,7 +162,7 @@ export class Gateway {
     if (dropped.length) log.debug(`key ${key.name}: tools not exposed: ${dropped.join(", ")}`);
 
     const system = [policy.systemPrompt, systemText(body.system), BRIDGE_PREAMBLE(tools.length, body.tool_choice)].filter(Boolean).join("\n\n");
-    const clientSystem = typeof body.system === "string" ? [body.system] : (body.system ?? []).filter((b) => b.type === "text").map((b) => b.text);
+    const clientSystem = systemBlocks(body.system);
     const mod = await this.moderator.check(key, { system: clientSystem, messages, tools });
     if (mod.verdict === "block") {
       if (mod.category === "moderation_unavailable") return errorResponse("overloaded_error", `content screening unavailable: ${mod.reason}`);

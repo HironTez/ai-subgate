@@ -34,10 +34,23 @@ export function normalizeMessages(raw: MessagesRequest["messages"]): Message[] {
   return out;
 }
 
+/**
+ * Claude Code clients send `x-anthropic-billing-header: ...` as their first system block. It is
+ * request metadata, not instructions. Forwarded inside the harness's --system-prompt it is fatal:
+ * the harness (Claude Code too) treats a system prompt that starts with it as its own header and
+ * drops the whole prompt, so the client's instructions never reach the model.
+ */
+const BILLING_HEADER = /^\s*x-anthropic-billing-header:[^\n]*(\n|$)/;
+
+/** The client's system prompt as text blocks, without the billing header. */
+export function systemBlocks(system: MessagesRequest["system"]): string[] {
+  if (!system) return [];
+  const texts = typeof system === "string" ? [system] : system.filter(isText).map((b) => b.text);
+  return texts.map((t) => t.replace(BILLING_HEADER, "")).filter((t) => t.trim());
+}
+
 export function systemText(system: MessagesRequest["system"]): string {
-  if (!system) return "";
-  if (typeof system === "string") return system;
-  return system.filter(isText).map((b) => b.text).join("\n\n");
+  return systemBlocks(system).join("\n\n");
 }
 
 const norm = (s: string) => s.replace(/\s+/g, " ").trim();
